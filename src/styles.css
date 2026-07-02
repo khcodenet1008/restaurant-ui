@@ -268,6 +268,17 @@ td {
   text-align: left;
 }
 
+.order-status-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-note {
+  color: #627487;
+  font-size: 0.82rem;
+}
+
 .result-grid,
 .item-meta {
   display: grid;

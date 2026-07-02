@@ -25,6 +25,8 @@ import { OrdersPage } from "./components/OrdersPage";
 import { PaymentsPage } from "./components/PaymentsPage";
 
 const tabs = ["Dashboard", "Menu", "Orders", "Payments", "Event Flow", "Deployment", "Debug"] as const;
+const RECENT_ORDERS_STORAGE_KEY = "restaurant-ui-recent-orders";
+const ORDER_LOOKUP_STORAGE_KEY = "restaurant-ui-order-id-lookup";
 
 type Tab = (typeof tabs)[number];
 
@@ -37,6 +39,36 @@ function randomTraceId() {
   return `trace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function loadStoredRecentOrders(): OrderResponse[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(RECENT_ORDERS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as OrderResponse[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredOrderLookup(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return window.localStorage.getItem(ORDER_LOOKUP_STORAGE_KEY) || "";
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("Dashboard");
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -45,11 +77,12 @@ export default function App() {
   const [usingDemoFallback, setUsingDemoFallback] = useState(false);
   const [menuResponse, setMenuResponse] = useState<ApiResult<MenuItem[]> | undefined>(undefined);
 
-  const [recentOrders, setRecentOrders] = useState<OrderResponse[]>([]);
-  const [orderIdLookup, setOrderIdLookup] = useState("");
+  const [recentOrders, setRecentOrders] = useState<OrderResponse[]>(() => loadStoredRecentOrders());
+  const [orderIdLookup, setOrderIdLookup] = useState(() => loadStoredOrderLookup());
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderMessage, setOrderMessage] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [updatingOrderIds, setUpdatingOrderIds] = useState<string[]>([]);
 
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentResult, setPaymentResult] = useState<PaymentResponse | null>(null);
@@ -82,48 +115,87 @@ export default function App() {
     void loadMenu();
   }, []);
 
+  useEffect(() => {
+    window.localStorage.setItem(RECENT_ORDERS_STORAGE_KEY, JSON.stringify(recentOrders));
+  }, [recentOrders]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ORDER_LOOKUP_STORAGE_KEY, orderIdLookup);
+  }, [orderIdLookup]);
+
+  useEffect(() => {
+    if (recentOrders.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function refreshStoredOrders() {
+      const refreshedOrders = await Promise.all(
+        recentOrders.map(async (order) => {
+          const result = await getOrder(order.id);
+          return result.ok && result.data ? result.data : order;
+        })
+      );
+
+      if (!cancelled) {
+        setRecentOrders(refreshedOrders);
+      }
+    }
+
+    void refreshStoredOrders();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function handleCreateOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setOrderLoading(true);
     setOrderMessage(null);
     setOrderError(null);
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     const customerName = String(form.get("customerName") || "").trim();
     const menuItemId = String(form.get("menuItemId") || "").trim();
     const quantity = Number(form.get("quantity") || 1);
 
-    const menuItem = menuItems.find((item) => item.id === menuItemId) || demoMenuItems.find((item) => item.id === menuItemId);
-    if (!menuItem) {
-      setOrderError("Selected menu item was not found.");
+    try {
+      const menuItem =
+        menuItems.find((item) => item.id === menuItemId) || demoMenuItems.find((item) => item.id === menuItemId);
+      if (!menuItem) {
+        setOrderError("Selected menu item was not found.");
+        return;
+      }
+
+      const result = await createOrder({
+        customerId: customerName,
+        paymentMethod: "MOCK_CARD",
+        currency: menuItem.currency,
+        items: [
+          {
+            menuItemId: menuItem.id,
+            menuItemName: menuItem.name,
+            quantity,
+            unitPriceAmount: Number(menuItem.priceAmount)
+          }
+        ]
+      });
+
+      if (result.ok && result.data) {
+        const createdOrder = result.data;
+        setRecentOrders((current) => mergeOrder(createdOrder, current));
+        setOrderIdLookup(createdOrder.id);
+        setOrderMessage(`Order created successfully. Order ID: ${createdOrder.id}`);
+        formElement.reset();
+      } else {
+        setOrderError(result.error || "Order creation failed.");
+      }
+    } finally {
       setOrderLoading(false);
-      return;
     }
-
-    const result = await createOrder({
-      customerId: customerName,
-      paymentMethod: "MOCK_CARD",
-      currency: menuItem.currency,
-      items: [
-        {
-          menuItemId: menuItem.id,
-          menuItemName: menuItem.name,
-          quantity,
-          unitPriceAmount: Number(menuItem.priceAmount)
-        }
-      ]
-    });
-
-    if (result.ok && result.data) {
-      setRecentOrders((current) => mergeOrder(result.data!, current));
-      setOrderIdLookup(result.data.id);
-      setOrderMessage(`Order created successfully. Order ID: ${result.data.id}`);
-      event.currentTarget.reset();
-    } else {
-      setOrderError(result.error || "Order creation failed.");
-    }
-
-    setOrderLoading(false);
   }
 
   async function handleFetchOrder() {
@@ -135,16 +207,19 @@ export default function App() {
     setOrderMessage(null);
     setOrderError(null);
 
-    const result = await getOrder(orderIdLookup.trim());
+    try {
+      const result = await getOrder(orderIdLookup.trim());
 
-    if (result.ok && result.data) {
-      setRecentOrders((current) => mergeOrder(result.data!, current));
-      setOrderMessage(`Order ${result.data.id} loaded successfully.`);
-    } else {
-      setOrderError(result.error || "Order fetch failed.");
+      if (result.ok && result.data) {
+        const loadedOrder = result.data;
+        setRecentOrders((current) => mergeOrder(loadedOrder, current));
+        setOrderMessage(`Order ${loadedOrder.id} loaded successfully.`);
+      } else {
+        setOrderError(result.error || "Order fetch failed.");
+      }
+    } finally {
+      setOrderLoading(false);
     }
-
-    setOrderLoading(false);
   }
 
   async function handleCancelOrder(orderId: string) {
@@ -156,16 +231,19 @@ export default function App() {
     setOrderMessage(null);
     setOrderError(null);
 
-    const result = await cancelOrder(orderId.trim(), "Cancelled from frontend UI");
+    try {
+      const result = await cancelOrder(orderId.trim(), "Cancelled from frontend UI");
 
-    if (result.ok && result.data) {
-      setRecentOrders((current) => mergeOrder(result.data!, current));
-      setOrderMessage(`Order ${result.data.id} cancelled.`);
-    } else {
-      setOrderError(result.error || "Order cancel failed.");
+      if (result.ok && result.data) {
+        const cancelledOrder = result.data;
+        setRecentOrders((current) => mergeOrder(cancelledOrder, current));
+        setOrderMessage(`Order ${cancelledOrder.id} cancelled.`);
+      } else {
+        setOrderError(result.error || "Order cancel failed.");
+      }
+    } finally {
+      setOrderLoading(false);
     }
-
-    setOrderLoading(false);
   }
 
   async function handleConfirmPayment(event: React.FormEvent<HTMLFormElement>) {
@@ -189,30 +267,55 @@ export default function App() {
       return;
     }
 
-    const result = await confirmPayment({
-      orderId: order.id,
-      sagaId: order.sagaId,
-      customerId: order.customerId,
-      amount: Number(order.subtotalAmount),
-      currency: order.currency,
-      paymentMethod: order.paymentMethod,
-      traceId: randomTraceId(),
-      approved,
-      failureReason: approved ? "" : failureReason || "Mock payment failed"
-    });
+    try {
+      const startingOrderStatus = order.status;
+      const result = await confirmPayment({
+        orderId: order.id,
+        sagaId: order.sagaId,
+        customerId: order.customerId,
+        amount: Number(order.subtotalAmount),
+        currency: order.currency,
+        paymentMethod: order.paymentMethod,
+        traceId: randomTraceId(),
+        approved,
+        failureReason: approved ? "" : failureReason || "Mock payment failed"
+      });
 
-    if (result.ok && result.data) {
-      setPaymentResult(result.data);
-      setPaymentMessage(`Payment result received for order ${result.data.orderId}.`);
-      const refreshedOrder = await getOrder(order.id);
-      if (refreshedOrder.ok && refreshedOrder.data) {
-        setRecentOrders((current) => mergeOrder(refreshedOrder.data!, current));
+      if (result.ok && result.data) {
+        setPaymentResult(result.data);
+        setPaymentMessage(`Payment result received for order ${result.data.orderId}.`);
+        setUpdatingOrderIds((current) => (current.includes(order.id) ? current : [...current, order.id]));
+
+        let settled = false;
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const refreshedOrder = await getOrder(order.id);
+          if (refreshedOrder.ok && refreshedOrder.data) {
+            const updatedOrder = refreshedOrder.data;
+            setRecentOrders((current) => mergeOrder(updatedOrder, current));
+
+            if (updatedOrder.status !== startingOrderStatus) {
+              settled = true;
+              break;
+            }
+          }
+
+          if (attempt < 7) {
+            await sleep(600);
+          }
+        }
+
+        if (!settled) {
+          setPaymentMessage(
+            `Payment result received for order ${result.data.orderId}. order-service still reports ${startingOrderStatus} while Kafka processing continues.`
+          );
+        }
+      } else {
+        setPaymentError(result.error || "Payment confirmation failed.");
       }
-    } else {
-      setPaymentError(result.error || "Payment confirmation failed.");
+    } finally {
+      setUpdatingOrderIds((current) => current.filter((id) => id !== order.id));
+      setPaymentLoading(false);
     }
-
-    setPaymentLoading(false);
   }
 
   async function handleCheckHealth() {
@@ -324,6 +427,7 @@ export default function App() {
             orderLoading={orderLoading}
             orderMessage={orderMessage}
             recentOrders={recentOrders}
+            updatingOrderIds={updatingOrderIds}
           />
         )}
         {activeTab === "Payments" && (
@@ -334,6 +438,7 @@ export default function App() {
             paymentMessage={paymentMessage}
             paymentResult={paymentResult}
             recentOrders={recentOrders}
+            updatingOrderIds={updatingOrderIds}
           />
         )}
         {activeTab === "Event Flow" && <EventFlowPage />}

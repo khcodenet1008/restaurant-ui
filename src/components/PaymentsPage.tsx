@@ -2,6 +2,7 @@ import type { OrderResponse, PaymentResponse } from "../api/client";
 
 type PaymentsPageProps = {
   recentOrders: OrderResponse[];
+  updatingOrderIds: string[];
   paymentLoading: boolean;
   paymentResult: PaymentResponse | null;
   paymentMessage: string | null;
@@ -11,12 +12,17 @@ type PaymentsPageProps = {
 
 export function PaymentsPage({
   recentOrders,
+  updatingOrderIds,
   paymentLoading,
   paymentResult,
   paymentMessage,
   paymentError,
   onConfirmPayment
 }: PaymentsPageProps) {
+  function displayOrderStatus(order: OrderResponse) {
+    return updatingOrderIds.includes(order.id) ? `UPDATING (stored: ${order.status})` : order.status;
+  }
+
   return (
     <section className="page-section">
       <div className="section-heading">
@@ -32,7 +38,7 @@ export function PaymentsPage({
             <option value="">Choose from recent orders or type manually below</option>
             {recentOrders.map((order) => (
               <option key={order.id} value={order.id}>
-                {order.id} - {order.status}
+                {order.id} - {displayOrderStatus(order)}
               </option>
             ))}
           </select>

@@ -3,6 +3,7 @@ import type { MenuItem, OrderResponse } from "../api/client";
 type OrdersPageProps = {
   menuItems: MenuItem[];
   recentOrders: OrderResponse[];
+  updatingOrderIds: string[];
   orderIdLookup: string;
   orderLoading: boolean;
   orderMessage: string | null;
@@ -16,6 +17,7 @@ type OrdersPageProps = {
 export function OrdersPage({
   menuItems,
   recentOrders,
+  updatingOrderIds,
   orderIdLookup,
   orderLoading,
   orderMessage,
@@ -25,6 +27,18 @@ export function OrdersPage({
   onFetchOrder,
   onCancelOrder
 }: OrdersPageProps) {
+  function statusBadgeClass(status: string) {
+    if (status === "COMPLETED") {
+      return "status-up";
+    }
+
+    if (status === "CANCELLED" || status === "FAILED") {
+      return "status-down";
+    }
+
+    return "status-loading";
+  }
+
   return (
     <section className="page-section">
       <div className="section-heading">
@@ -118,7 +132,16 @@ export function OrdersPage({
                   <tr key={order.id}>
                     <td>{order.id}</td>
                     <td>{order.customerId}</td>
-                    <td>{order.status}</td>
+                    <td>
+                      {updatingOrderIds.includes(order.id) ? (
+                        <div className="order-status-stack">
+                          <span className="status-badge status-loading">UPDATING</span>
+                          <span className="status-note">Stored: {order.status}</span>
+                        </div>
+                      ) : (
+                        <span className={`status-badge ${statusBadgeClass(order.status)}`}>{order.status}</span>
+                      )}
+                    </td>
                     <td>
                       {order.currency} {Number(order.subtotalAmount).toFixed(2)}
                     </td>
