@@ -1,14 +1,9 @@
 import { useEffect, useState } from "react";
 import {
   cancelOrder,
-  checkGatewayHealth,
   confirmPayment,
   createOrder,
-  demoMenuItems,
-  endpoints,
   fetchMenuItems,
-  frontendEnvVarName,
-  gatewayBaseUrl,
   getOrder,
   type ApiResult,
   type MenuItem,
@@ -17,14 +12,11 @@ import {
   type ServiceStatus
 } from "./api/client";
 import { Dashboard } from "./components/Dashboard";
-import { DebugPanel } from "./components/DebugPanel";
-import { DeploymentPage } from "./components/DeploymentPage";
-import { EventFlowPage } from "./components/EventFlowPage";
 import { MenuPage } from "./components/MenuPage";
 import { OrdersPage } from "./components/OrdersPage";
 import { PaymentsPage } from "./components/PaymentsPage";
 
-const tabs = ["Dashboard", "Menu", "Orders", "Payments", "Event Flow", "Deployment", "Debug"] as const;
+const tabs = ["Dashboard", "Menu", "Orders", "Payments"] as const;
 const RECENT_ORDERS_STORAGE_KEY = "restaurant-ui-recent-orders";
 const ORDER_LOOKUP_STORAGE_KEY = "restaurant-ui-order-id-lookup";
 
@@ -74,7 +66,6 @@ export default function App() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
   const [menuError, setMenuError] = useState<string | null>(null);
-  const [usingDemoFallback, setUsingDemoFallback] = useState(false);
   const [menuResponse, setMenuResponse] = useState<ApiResult<MenuItem[]> | undefined>(undefined);
 
   const [recentOrders, setRecentOrders] = useState<OrderResponse[]>(() => loadStoredRecentOrders());
@@ -88,10 +79,6 @@ export default function App() {
   const [paymentResult, setPaymentResult] = useState<PaymentResponse | null>(null);
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-
-  const [healthStatus, setHealthStatus] = useState<ServiceStatus>("idle");
-  const [healthResponse, setHealthResponse] = useState<ApiResult<unknown> | null>(null);
-
   async function loadMenu() {
     setMenuLoading(true);
     setMenuError(null);
@@ -101,11 +88,9 @@ export default function App() {
 
     if (result.ok && result.data) {
       setMenuItems(result.data);
-      setUsingDemoFallback(false);
     } else {
       setMenuError(result.error || "Menu request failed");
-      setMenuItems(demoMenuItems);
-      setUsingDemoFallback(true);
+      setMenuItems([]);
     }
 
     setMenuLoading(false);
@@ -163,10 +148,9 @@ export default function App() {
     const quantity = Number(form.get("quantity") || 1);
 
     try {
-      const menuItem =
-        menuItems.find((item) => item.id === menuItemId) || demoMenuItems.find((item) => item.id === menuItemId);
+      const menuItem = menuItems.find((item) => item.id === menuItemId);
       if (!menuItem) {
-        setOrderError("Selected menu item was not found.");
+        setOrderError("Selected menu item was not found from the server menu.");
         return;
       }
 
@@ -318,19 +302,12 @@ export default function App() {
     }
   }
 
-  async function handleCheckHealth() {
-    setHealthStatus("loading");
-    const result = await checkGatewayHealth();
-    setHealthResponse(result);
-    setHealthStatus(result.ok ? "up" : "down");
-  }
-
   const dashboardCards = [
     {
       name: "Gateway Service",
       purpose: "Public entry point",
       explanation: "Forwards client requests to menu, order, and payment routes.",
-      status: healthStatus === "up" ? "up" : healthStatus === "down" ? "down" : "idle"
+      status: "unknown"
     },
     {
       name: "Menu Service",
@@ -379,15 +356,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="hero">
-        <p className="eyebrow">Restaurant App Microservices UI</p>
         <h1>Simple Frontend for the 4-Service Restaurant System</h1>
-        <p className="hero-copy">
-          Client → gateway-service → menu, order, payment services → Kafka topics → GitOps and optional Istio.
-        </p>
-        <div className="hero-meta">
-          <span>Gateway base URL: {gatewayBaseUrl}</span>
-          <span>Menu route: {endpoints.menuItems}</span>
-        </div>
       </header>
 
       <nav className="top-nav">
@@ -412,7 +381,6 @@ export default function App() {
             lastResponse={menuResponse}
             loading={menuLoading}
             onRefresh={() => void loadMenu()}
-            usingDemoFallback={usingDemoFallback}
           />
         )}
         {activeTab === "Orders" && (
@@ -439,17 +407,6 @@ export default function App() {
             paymentResult={paymentResult}
             recentOrders={recentOrders}
             updatingOrderIds={updatingOrderIds}
-          />
-        )}
-        {activeTab === "Event Flow" && <EventFlowPage />}
-        {activeTab === "Deployment" && <DeploymentPage />}
-        {activeTab === "Debug" && (
-          <DebugPanel
-            envVarName={frontendEnvVarName}
-            gatewayBaseUrl={gatewayBaseUrl}
-            healthResponse={healthResponse}
-            healthStatus={healthStatus}
-            onCheckHealth={() => void handleCheckHealth()}
           />
         )}
       </main>

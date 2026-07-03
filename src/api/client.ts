@@ -1,9 +1,9 @@
-export const gatewayBaseUrl =
-  import.meta.env.VITE_GATEWAY_API_BASE_URL?.trim() || "http://localhost:8080";
+export const frontendServerBaseUrlEnvVarName = "VITE_GATEWAY_API_BASE_URL";
 
-export const frontendEnvVarName = "VITE_GATEWAY_API_BASE_URL";
+export const serverApiBaseUrl =
+  import.meta.env[frontendServerBaseUrlEnvVarName]?.trim() || "http://localhost:8080";
 
-export const endpoints = {
+export const endpoints = { // api endpoint
   menuItems: "/api/menu/items",
   createOrder: "/api/orders",
   getOrder: (orderId: string) => `/api/orders/${orderId}`,
@@ -72,7 +72,7 @@ export type ApiResult<T> = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   try {
-    const response = await fetch(`${gatewayBaseUrl}${path}`, {
+    const response = await fetch(`${serverApiBaseUrl}${path}`, {
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {})
@@ -184,26 +184,3 @@ export async function confirmPayment(input: {
 export async function checkGatewayHealth(): Promise<ApiResult<unknown>> {
   return request<unknown>(endpoints.gatewayHealth);
 }
-
-export const demoMenuItems: MenuItem[] = [
-  {
-    id: "ramen-01",
-    categoryId: "cat-noodles",
-    name: "Class Demo Ramen",
-    description: "Warm noodle bowl for the demo order flow.",
-    priceAmount: 6.5,
-    currency: "USD",
-    available: true,
-    allergenLabels: ["gluten", "soy"]
-  },
-  {
-    id: "tea-01",
-    categoryId: "cat-drinks",
-    name: "Iced Tea",
-    description: "Simple drink item for bundled demo orders.",
-    priceAmount: 1.5,
-    currency: "USD",
-    available: true,
-    allergenLabels: []
-  }
-];

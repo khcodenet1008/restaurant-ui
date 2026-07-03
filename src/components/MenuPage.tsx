@@ -4,7 +4,6 @@ type MenuPageProps = {
   items: MenuItem[];
   loading: boolean;
   error: string | null;
-  usingDemoFallback: boolean;
   onRefresh: () => void;
   lastResponse?: ApiResult<MenuItem[]>;
 };
@@ -13,7 +12,6 @@ export function MenuPage({
   items,
   loading,
   error,
-  usingDemoFallback,
   onRefresh
 }: MenuPageProps) {
   return (
@@ -34,15 +32,6 @@ export function MenuPage({
         <div className="state-panel error-panel">
           <strong>Menu request failed.</strong>
           <p>{error}</p>
-          <p className="muted-text">
-            Demo fallback data is shown below so students can still understand the system shape.
-          </p>
-        </div>
-      )}
-
-      {!loading && usingDemoFallback && (
-        <div className="state-panel warning-panel">
-          Demo fallback data is currently shown. Real API data was unavailable.
         </div>
       )}
 
