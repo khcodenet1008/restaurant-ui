@@ -1,7 +1,7 @@
 export const frontendServerBaseUrlEnvVarName = "VITE_GATEWAY_API_BASE_URL";
 
 export const serverApiBaseUrl =
-  import.meta.env[frontendServerBaseUrlEnvVarName]?.trim() || "http://localhost:8080";
+  import.meta.env[frontendServerBaseUrlEnvVarName]?.trim() || "";
 
 export const endpoints = { // api endpoint
   menuItems: "/api/menu/items",
